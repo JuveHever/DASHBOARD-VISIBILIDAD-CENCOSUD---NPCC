@@ -124,8 +124,8 @@ def construir():
                     'orden': fecha.strftime('%Y%m%d') if pd.notna(fecha) else '',
                     'raw': crudo, 'ruta': str(ruta)})
 
-    sin_link = {x['cod'] for m in pdv_tipos.values() for l in m.values()
-                for x in l if x['cod'] and not x['url']}
+    sin_link = {x['cod'] for m in pdv_tipos.values() for lista in m.values()
+                for x in lista if x['cod'] and not x['url']}
     if sin_link:
         log(f'AVISO: {len(sin_link)} código(s) de foto sin enlace. '
             f'Revisa que {os.path.basename(SRC_FOTOS)} esté al día.')
@@ -137,10 +137,15 @@ def construir():
         d   = info.get(cod, {})
         tipos = []
         if cap:
-            for tp, fotos in pdv_tipos.get(cod, {}).items():
-                ok = sorted([x for x in fotos if x['cod']], key=lambda x: x['orden'], reverse=True)
-                tipos.append({'tipo': tp, 'nFotos': len(ok), 'nCapturas': len(fotos), 'fotos': ok})
-            tipos.sort(key=lambda x: (-x['nFotos'], x['tipo']))
+            for tp, capturas in pdv_tipos.get(cod, {}).items():
+                # El mismo mueble se fotografía en cada visita. Se conserva una
+                # sola foto —la más reciente— porque lo que importa es qué hay
+                # instalado, no cuántas veces se registró.
+                con_foto = sorted([x for x in capturas if x['cod']],
+                                  key=lambda x: x['orden'], reverse=True)
+                foto = con_foto[0] if con_foto else None
+                tipos.append({'tipo': tp, 'nCapturas': len(capturas), 'foto': foto})
+            tipos.sort(key=lambda x: (x['foto'] is None, x['tipo']))
         pdvs.append({
             'codigo': cod,
             'nombre': str(p.get('NOMBRE FANTASIA') or '').strip(),
@@ -152,7 +157,8 @@ def construir():
             'estado': 'CAPTURADO' if cap else 'PENDIENTE',
             'tieneExh': ('SI' if d.get('tieneSI') else 'NO') if cap else '',
             'visitas': d.get('visitas', 0),
-            'nFotos': d.get('nfotos', 0),
+            'nFotos': sum(1 for t in tipos if t['foto']),   # una por tipo
+            'nCapturasFoto': d.get('nfotos', 0),            # total registrado en campo
             'ultimaVisita': d['ultima'].strftime('%d/%m/%Y') if cap and pd.notna(d.get('ultima')) else '',
             'tipos': tipos,
             'nTipos': len(tipos)})
@@ -166,8 +172,9 @@ def construir():
 
     cap = [p for p in pdvs if p['estado'] == 'CAPTURADO']
     resumen = (f"{len(cap)}/{len(pdvs)} almacenes visitados, "
-               f"{sum(p['nFotos'] for p in cap)} fotos, "
-               f"{sum(p['nTipos'] for p in cap)} exhibiciones únicas")
+               f"{sum(p['nTipos'] for p in cap)} exhibiciones únicas, "
+               f"{sum(p['nFotos'] for p in cap)} fotos "
+               f"(de {sum(p['nCapturasFoto'] for p in cap)} capturas en campo)")
 
     # ¿Cambió algo de fondo? Se compara sin el sello de tiempo, porque ese
     # varía en cada corrida y generaría un commit diario sin datos nuevos.
